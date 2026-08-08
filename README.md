@@ -57,7 +57,14 @@ backend-docker-candidate + backend-sast                 | backend-docker-publish
                          + backend-dast ----------------+
 ```
 
-The Docker candidate is built exactly once, saved as a workflow artifact, loaded for container scanning and DAST, then retagged and pushed without rebuilding. Version bump and Docker publishing run in parallel. Deployment waits for both and verifies the immutable image plus `/health` endpoint.
+The Docker candidate is built exactly once, saved as a workflow artifact, loaded for container scanning and DAST, then retagged and pushed without rebuilding. Version bump and Docker publishing run in parallel. Deployment waits for both and verifies the immutable image plus `/health` endpoint. Database migrations become eligible only after deployment succeeds.
+
+Deployment and database migration use separate protected GitHub Environments so each job requires manual approval:
+
+1. Configure required reviewers on the existing `production` environment for `deploy-dev`.
+2. Create a `database-migration` environment, configure required reviewers, and add its `DB_CONNECTION_STRING` environment secret.
+
+After image publication, approve `deploy-dev`. Once deployment succeeds, approve `migrate-database` to apply pending Entity Framework migrations. GitHub Environment approval rules provide the manual approval buttons; the workflow dependency enforces deploy-before-migrate ordering.
 
 All sanity jobs currently use `continue-on-error: true`, so they report failures without blocking image promotion or deployment. This should be tightened as the test and vulnerability backlog is resolved.
 
@@ -74,6 +81,7 @@ Required GitHub secrets:
 - `AZURE_CLIENT_ID`
 - `AZURE_TENANT_ID`
 - `AZURE_SUBSCRIPTION_ID`
+- `DB_CONNECTION_STRING` (store this on the `database-migration` environment)
 
 Required GitHub variables:
 

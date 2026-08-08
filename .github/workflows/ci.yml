@@ -383,3 +383,33 @@ jobs:
           curl --fail --show-error --silent \
             --retry 12 --retry-delay 10 --retry-all-errors \
             "https://$FQDN/health" >/dev/null
+  migrate-database:
+    name: migrate-database
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: [deploy-dev]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: database-migration
+    env:
+      ConnectionStrings__DefaultConnection: ${{ secrets.DB_CONNECTION_STRING }}
+      Jwt__Key: MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDE=
+      Jwt__Issuer: migration-runner
+      Jwt__Audience: migration-runner
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+      - name: Restore migration dependencies
+        run: dotnet restore "$API_PROJECT"
+      - name: Build migration project
+        run: dotnet build "$API_PROJECT" --configuration Release --no-restore
+      - name: Install Entity Framework CLI
+        run: dotnet tool install --global dotnet-ef --version 8.0.0
+      - name: Apply pending database migrations
+        run: |
+          dotnet ef database update \
+            --project "$API_PROJECT" \
+            --startup-project "$API_PROJECT" \
+            --configuration Release \
+            --no-build
