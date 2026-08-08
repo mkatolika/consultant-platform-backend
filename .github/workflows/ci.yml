@@ -1,0 +1,385 @@
+name: Backend CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: backend-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_VERSION: 8.0.x
+  SOLUTION_PATH: ConsulationApllication.sln
+  API_PROJECT: ConsulationApllication/ConsulationApplication.csproj
+  TEST_PROJECT: TestConsultationApplication.Tests/TestConsultationApplication.Tests.csproj
+  DOCKER_CONTEXT: ConsulationApllication
+  CANDIDATE_IMAGE: consultant-platform-backend
+  BUILD_ARTIFACT: backend-dotnet-build
+  CANDIDATE_ARTIFACT: backend-candidate-image
+
+jobs:
+  dotnet-restore-build:
+    name: dotnet-restore-build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj') }}
+          restore-keys: nuget-${{ runner.os }}-
+      - name: Restore dependencies
+        run: dotnet restore "$SOLUTION_PATH"
+      - name: Restore test dependencies
+        run: dotnet restore "$TEST_PROJECT"
+      - name: Build solution
+        run: dotnet build "$SOLUTION_PATH" --configuration Release --no-restore
+      - name: Build tests
+        run: dotnet build "$TEST_PROJECT" --configuration Release --no-restore
+      - name: Package build output
+        run: |
+          find . -type d \( -name bin -o -name obj \) -print0 \
+            | tar --null -czf dotnet-build-output.tar.gz --files-from -
+      - name: Upload build output
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.BUILD_ARTIFACT }}
+          path: dotnet-build-output.tar.gz
+          retention-days: 1
+          if-no-files-found: error
+
+  backend-docker-candidate-build:
+    name: backend-docker-candidate-build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build immutable candidate once
+        run: |
+          docker build \
+            --label org.opencontainers.image.revision="$GITHUB_SHA" \
+            --tag "$CANDIDATE_IMAGE:$GITHUB_SHA" \
+            "$DOCKER_CONTEXT"
+      - name: Save candidate without rebuilding
+        run: docker save "$CANDIDATE_IMAGE:$GITHUB_SHA" | gzip > candidate-image.tar.gz
+      - name: Create build metadata
+        run: |
+          {
+            echo "IMAGE_NAME=$CANDIDATE_IMAGE"
+            echo "CANDIDATE_TAG=$CANDIDATE_IMAGE:$GITHUB_SHA"
+            echo "GIT_SHA=$GITHUB_SHA"
+            echo "BUILD_NUMBER=$GITHUB_RUN_NUMBER"
+            echo "VERSION_BASE=1.0"
+          } > build-metadata.env
+      - name: Upload candidate image
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.CANDIDATE_ARTIFACT }}
+          path: |
+            candidate-image.tar.gz
+            build-metadata.env
+          retention-days: 2
+          if-no-files-found: error
+
+  backend-unit-test:
+    name: backend-unit-test
+    needs: [dotnet-restore-build, backend-docker-candidate-build]
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.BUILD_ARTIFACT }}
+      - name: Restore build output
+        run: tar -xzf dotnet-build-output.tar.gz
+      - name: Run tests without rebuilding
+        run: |
+          dotnet test "$TEST_PROJECT" \
+            --configuration Release \
+            --no-build \
+            --no-restore \
+            --logger "trx;LogFileName=backend-tests.trx" \
+            --collect "XPlat Code Coverage" \
+            --results-directory TestResults
+      - name: Upload test results and coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-test-results
+          path: TestResults/
+          retention-days: 7
+          if-no-files-found: warn
+
+  backend-lint:
+    name: backend-lint
+    needs: [dotnet-restore-build, backend-docker-candidate-build]
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.BUILD_ARTIFACT }}
+      - name: Restore build output
+        run: tar -xzf dotnet-build-output.tar.gz
+      - name: Verify configured analyzers
+        run: dotnet format "$SOLUTION_PATH" --no-restore --verify-no-changes --severity error
+
+  backend-sast:
+    name: backend-sast
+    needs: [dotnet-restore-build, backend-docker-candidate-build]
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: csharp
+      - uses: github/codeql-action/autobuild@v3
+      - uses: github/codeql-action/analyze@v3
+        with:
+          category: /language:csharp
+
+  backend-secret-detection:
+    name: backend-secret-detection
+    needs: [dotnet-restore-build, backend-docker-candidate-build]
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  backend-dependency-scanning:
+    name: backend-dependency-scanning
+    needs: [dotnet-restore-build, backend-docker-candidate-build]
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Scan NuGet dependencies
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+          format: table
+
+  backend-container-scanning:
+    name: backend-container-scanning
+    needs: [dotnet-restore-build, backend-docker-candidate-build]
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.CANDIDATE_ARTIFACT }}
+      - name: Load exact candidate
+        run: |
+          gunzip -c candidate-image.tar.gz | docker load
+          source build-metadata.env
+          docker image inspect "$CANDIDATE_TAG" >/dev/null
+      - name: Scan exact candidate
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ env.CANDIDATE_IMAGE }}:${{ github.sha }}
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+          format: table
+
+  backend-dast:
+    name: backend-dast
+    needs: [dotnet-restore-build, backend-docker-candidate-build]
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.CANDIDATE_ARTIFACT }}
+      - name: Load and run exact candidate
+        run: |
+          gunzip -c candidate-image.tar.gz | docker load
+          source build-metadata.env
+          JWT_KEY=$(printf '01234567890123456789012345678901' | base64 -w0)
+          docker run --detach \
+            --name backend-candidate \
+            --publish 8080:8080 \
+            --env "ConnectionStrings__DefaultConnection=Server=localhost;Database=ci;User Id=sa;Password=CiOnly!12345;TrustServerCertificate=True" \
+            --env "Jwt__Key=$JWT_KEY" \
+            --env "Jwt__Issuer=ci" \
+            --env "Jwt__Audience=ci" \
+            "$CANDIDATE_TAG"
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:8080/health >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs backend-candidate
+          exit 1
+      - name: Run ZAP baseline against candidate
+        run: |
+          docker run --rm \
+            --network host \
+            --volume "$GITHUB_WORKSPACE:/zap/wrk/:rw" \
+            ghcr.io/zaproxy/zaproxy:stable \
+            zap-baseline.py -t http://127.0.0.1:8080/swagger/index.html -m 1 -I -r zap-report.html
+      - name: Upload ZAP report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-zap-report
+          path: zap-report.html
+          retention-days: 7
+          if-no-files-found: warn
+      - name: Stop candidate
+        if: always()
+        run: docker rm --force backend-candidate || true
+
+  backend-version-bump:
+    name: backend-version-bump
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs:
+      - backend-unit-test
+      - backend-lint
+      - backend-sast
+      - backend-secret-detection
+      - backend-dependency-scanning
+      - backend-container-scanning
+      - backend-dast
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Generate deterministic version
+        id: version
+        run: |
+          VERSION="1.0.$GITHUB_RUN_NUMBER"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "$VERSION" > version.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: backend-version
+          path: version.txt
+          retention-days: 2
+          if-no-files-found: error
+
+  backend-docker-publish:
+    name: backend-docker-publish
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs:
+      - backend-unit-test
+      - backend-lint
+      - backend-sast
+      - backend-secret-detection
+      - backend-dependency-scanning
+      - backend-container-scanning
+      - backend-dast
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.CANDIDATE_ARTIFACT }}
+      - name: Load exact approved candidate
+        run: |
+          gunzip -c candidate-image.tar.gz | docker load
+          source build-metadata.env
+          docker image inspect "$CANDIDATE_TAG" >/dev/null
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USER_NAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN || secrets.DOCKERHUB_PASSWORD }}
+      - name: Retag and push without rebuilding
+        env:
+          DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USER_NAME }}
+          IMAGE_NAME: ${{ vars.DOCKER_IMAGE_NAME || 'lwazi' }}
+        run: |
+          source build-metadata.env
+          VERSION="$VERSION_BASE.$GITHUB_RUN_NUMBER"
+          TARGET="docker.io/$DOCKERHUB_USER/$IMAGE_NAME"
+          docker tag "$CANDIDATE_TAG" "$TARGET:$VERSION"
+          docker tag "$CANDIDATE_TAG" "$TARGET:$GIT_SHA"
+          docker tag "$CANDIDATE_TAG" "$TARGET:latest"
+          docker push "$TARGET:$VERSION"
+          docker push "$TARGET:$GIT_SHA"
+          docker push "$TARGET:latest"
+
+  deploy-dev:
+    name: deploy-dev
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: [backend-docker-publish, backend-version-bump]
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Sign in to Azure with OIDC
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - name: Deploy and verify exact version
+        env:
+          DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USER_NAME }}
+          IMAGE_NAME: ${{ vars.DOCKER_IMAGE_NAME || 'lwazi' }}
+          VERSION: ${{ needs.backend-version-bump.outputs.version }}
+          RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+          CONTAINER_APP_NAME: ${{ vars.AZURE_CONTAINER_APP_NAME }}
+        run: |
+          IMAGE="docker.io/$DOCKERHUB_USER/$IMAGE_NAME:$VERSION"
+          az containerapp update \
+            --name "$CONTAINER_APP_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --image "$IMAGE" \
+            --output none
+          FQDN=$(az containerapp show --name "$CONTAINER_APP_NAME" --resource-group "$RESOURCE_GROUP" --query properties.configuration.ingress.fqdn --output tsv)
+          ACTUAL_IMAGE=$(az containerapp show --name "$CONTAINER_APP_NAME" --resource-group "$RESOURCE_GROUP" --query properties.template.containers[0].image --output tsv)
+          test "$ACTUAL_IMAGE" = "$IMAGE"
+          curl --fail --show-error --silent \
+            --retry 12 --retry-delay 10 --retry-all-errors \
+            "https://$FQDN/health" >/dev/null
