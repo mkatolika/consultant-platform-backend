@@ -16,10 +16,10 @@ permissions:
 
 env:
   DOTNET_VERSION: 8.0.x
-  SOLUTION_PATH: ConsulationApllication.sln
-  API_PROJECT: ConsulationApllication/ConsulationApplication.csproj
-  TEST_PROJECT: TestConsultationApplication.Tests/TestConsultationApplication.Tests.csproj
-  DOCKER_BUILD_CONTEXT: ConsulationApllication
+  SOLUTION_PATH: ConsultationApplication.sln
+  API_PROJECT: ConsultationApplication/ConsultationApplication.csproj
+  TEST_PROJECT: ConsultationApplication.Tests/ConsultationApplication.Tests.csproj
+  DOCKER_BUILD_CONTEXT: ConsultationApplication
   CANDIDATE_IMAGE: consultant-platform-backend
   BUILD_ARTIFACT: backend-dotnet-build
   CANDIDATE_ARTIFACT: backend-candidate-image

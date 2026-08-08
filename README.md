@@ -19,9 +19,9 @@ ASP.NET Core 8 API for the Consultant and Services Platform. It provides JWT aut
 Configure a local connection string and JWT settings with user secrets, environment variables, or an ignored `appsettings.Development.json`. Never use the development JWT key committed in `appsettings.json` for a deployed environment.
 
 ```bash
-dotnet restore ConsulationApllication.sln
-dotnet restore TestConsultationApplication.Tests/TestConsultationApplication.Tests.csproj
-dotnet run --project ConsulationApllication/ConsulationApplication.csproj
+dotnet restore ConsultationApplication.sln
+dotnet restore ConsultationApplication.Tests/ConsultationApplication.Tests.csproj
+dotnet run --project ConsultationApplication/ConsultationApplication.csproj
 ```
 
 Health endpoint: `GET /health`
@@ -29,13 +29,13 @@ Health endpoint: `GET /health`
 ## Tests
 
 ```bash
-dotnet test TestConsultationApplication.Tests/TestConsultationApplication.Tests.csproj --configuration Release
+dotnet test ConsultationApplication.Tests/ConsultationApplication.Tests.csproj --configuration Release
 ```
 
 ## Docker
 
 ```bash
-docker build -t consultant-platform-backend ConsulationApllication
+docker build -t consultant-platform-backend ConsultationApplication
 docker run --rm -p 8080:8080 \
   -e ConnectionStrings__DefaultConnection="<connection-string>" \
   -e Jwt__Key="<base64-signing-key>" \
