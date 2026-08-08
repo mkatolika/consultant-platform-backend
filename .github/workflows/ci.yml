@@ -19,7 +19,7 @@ env:
   SOLUTION_PATH: ConsulationApllication.sln
   API_PROJECT: ConsulationApllication/ConsulationApplication.csproj
   TEST_PROJECT: TestConsultationApplication.Tests/TestConsultationApplication.Tests.csproj
-  DOCKER_CONTEXT: ConsulationApllication
+  DOCKER_BUILD_CONTEXT: ConsulationApllication
   CANDIDATE_IMAGE: consultant-platform-backend
   BUILD_ARTIFACT: backend-dotnet-build
   CANDIDATE_ARTIFACT: backend-candidate-image
@@ -71,7 +71,7 @@ jobs:
           docker build \
             --label org.opencontainers.image.revision="$GITHUB_SHA" \
             --tag "$CANDIDATE_IMAGE:$GITHUB_SHA" \
-            "$DOCKER_CONTEXT"
+            "$DOCKER_BUILD_CONTEXT"
       - name: Save candidate without rebuilding
         run: docker save "$CANDIDATE_IMAGE:$GITHUB_SHA" | gzip > candidate-image.tar.gz
       - name: Create build metadata
