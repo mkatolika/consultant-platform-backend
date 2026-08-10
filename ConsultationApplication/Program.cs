@@ -1,10 +1,12 @@
-using ConsulationApplication.Data;
-using ConsulationApplication.Models;
+using ConsultationApplication.AppServices;
+using ConsultationApplication.Data;
+using ConsultationApplication.Models;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
+using System;
 using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -18,12 +20,11 @@ builder.Services.AddDbContext<ConsulatationAppDBContext>(options =>
 });
 
 // Identity
-builder.Services
-    .AddIdentity<AppUser, IdentityRole>()
+builder.Services.AddIdentity<AppUser, IdentityRole>()
     .AddEntityFrameworkStores<ConsulatationAppDBContext>()
     .AddDefaultTokenProviders();
 
-// JWT
+// JWT Authentication
 var jwtKey = builder.Configuration["Jwt:Key"];
 
 if (string.IsNullOrWhiteSpace(jwtKey))
@@ -32,6 +33,46 @@ if (string.IsNullOrWhiteSpace(jwtKey))
 }
 
 var key = Convert.FromBase64String(jwtKey);
+
+// CORS
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowSpecificOrigins", policy =>
+    {
+        policy
+            .WithOrigins("http://localhost:3000")
+            .AllowAnyHeader()
+            .AllowAnyMethod();
+    });
+});
+
+// Swagger + Bearer authentication
+builder.Services.AddSwaggerGen(c =>
+{
+    c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+    {
+        In = ParameterLocation.Header,
+        Description = "Please enter JWT with Bearer into field",
+        Name = "Authorization",
+        Type = SecuritySchemeType.ApiKey,
+        Scheme = "Bearer"
+    });
+
+    c.AddSecurityRequirement(new OpenApiSecurityRequirement
+    {
+        {
+            new OpenApiSecurityScheme
+            {
+                Reference = new OpenApiReference
+                {
+                    Type = ReferenceType.SecurityScheme,
+                    Id = "Bearer"
+                }
+            },
+            Array.Empty<string>()
+        }
+    });
+});
 
 builder.Services.AddAuthentication(options =>
 {
@@ -57,49 +98,8 @@ builder.Services.AddAuthentication(options =>
     };
 });
 
-// CORS
-builder.Services.AddCors(options =>
-{
-    options.AddPolicy("AllowSpecificOrigins", policy =>
-    {
-        policy
-            .WithOrigins("http://localhost:3000")
-            .AllowAnyHeader()
-            .AllowAnyMethod();
-    });
-});
-
-// Controllers
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
-
-// Swagger + JWT authentication
-builder.Services.AddSwaggerGen(c =>
-{
-    c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
-    {
-        In = ParameterLocation.Header,
-        Description = "Enter JWT token using Bearer authentication",
-        Name = "Authorization",
-        Type = SecuritySchemeType.ApiKey,
-        Scheme = "Bearer"
-    });
-
-    c.AddSecurityRequirement(new OpenApiSecurityRequirement
-    {
-        {
-            new OpenApiSecurityScheme
-            {
-                Reference = new OpenApiReference
-                {
-                    Type = ReferenceType.SecurityScheme,
-                    Id = "Bearer"
-                }
-            },
-            Array.Empty<string>()
-        }
-    });
-});
 
 var app = builder.Build();
 
@@ -123,11 +123,9 @@ app.UseSwaggerUI();
 // CORS
 app.UseCors("AllowSpecificOrigins");
 
-// Authentication / Authorization
 app.UseAuthentication();
 app.UseAuthorization();
 
-// Controllers
 app.MapControllers();
 
 app.Run();
