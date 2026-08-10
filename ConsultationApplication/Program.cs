@@ -1,18 +1,16 @@
-using ConsultationApplication.AppServices;
-using ConsultationApplication.Data;
-using ConsultationApplication.Models;
+using ConsulationApplication.Data;
+using ConsulationApplication.Models;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
-using System;
 using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Database
-builder.Services.AddDbContext<ApplicationDbContext>(options =>
+builder.Services.AddDbContext<ConsulatationAppDBContext>(options =>
 {
     options.UseSqlServer(
         builder.Configuration.GetConnectionString("DefaultConnection")
@@ -20,49 +18,20 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
 });
 
 // Identity
-builder.Services.AddIdentity<AppUser, IdentityRole>()
-    .AddEntityFrameworkStores<ApplicationDbContext>()
+builder.Services
+    .AddIdentity<AppUser, IdentityRole>()
+    .AddEntityFrameworkStores<ConsulatationAppDBContext>()
     .AddDefaultTokenProviders();
 
-// JWT Authentication
-var key = Convert.FromBase64String(builder.Configuration["Jwt:Key"]!);
+// JWT
+var jwtKey = builder.Configuration["Jwt:Key"];
 
-builder.Services.AddCors(options =>
+if (string.IsNullOrWhiteSpace(jwtKey))
 {
-    options.AddPolicy("AllowSpecificOrigins", policy =>
-    {
-        policy.WithOrigins("http://localhost:3000")
-            .AllowAnyHeader()
-            .AllowAnyMethod();
-    });
-});
+    throw new InvalidOperationException("Jwt:Key is not configured.");
+}
 
-builder.Services.AddSwaggerGen(c =>
-{
-    c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
-    {
-        In = ParameterLocation.Header,
-        Description = "Please enter JWT with Bearer into field",
-        Name = "Authorization",
-        Type = SecuritySchemeType.ApiKey,
-        Scheme = "Bearer"
-    });
-
-    c.AddSecurityRequirement(new OpenApiSecurityRequirement
-    {
-        {
-            new OpenApiSecurityScheme
-            {
-                Reference = new OpenApiReference
-                {
-                    Type = ReferenceType.SecurityScheme,
-                    Id = "Bearer"
-                }
-            },
-            Array.Empty<string>()
-        }
-    });
-});
+var key = Convert.FromBase64String(jwtKey);
 
 builder.Services.AddAuthentication(options =>
 {
@@ -88,31 +57,77 @@ builder.Services.AddAuthentication(options =>
     };
 });
 
+// CORS
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowSpecificOrigins", policy =>
+    {
+        policy
+            .WithOrigins("http://localhost:3000")
+            .AllowAnyHeader()
+            .AllowAnyMethod();
+    });
+});
+
+// Controllers
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
+
+// Swagger + JWT authentication
+builder.Services.AddSwaggerGen(c =>
+{
+    c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+    {
+        In = ParameterLocation.Header,
+        Description = "Enter JWT token using Bearer authentication",
+        Name = "Authorization",
+        Type = SecuritySchemeType.ApiKey,
+        Scheme = "Bearer"
+    });
+
+    c.AddSecurityRequirement(new OpenApiSecurityRequirement
+    {
+        {
+            new OpenApiSecurityScheme
+            {
+                Reference = new OpenApiReference
+                {
+                    Type = ReferenceType.SecurityScheme,
+                    Id = "Bearer"
+                }
+            },
+            Array.Empty<string>()
+        }
+    });
+});
 
 var app = builder.Build();
 
 // Apply pending EF Core migrations
 using (var scope = app.Services.CreateScope())
 {
-    var db =
-        scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+    var dbContext =
+        scope.ServiceProvider.GetRequiredService<ConsulatationAppDBContext>();
 
-    await db.Database.MigrateAsync();
+    await dbContext.Database.MigrateAsync();
 }
 
+// Basic endpoints
 app.MapGet("/", () => Results.Ok("API Running"));
 app.MapGet("/health", () => Results.Ok("Healthy"));
 
+// Swagger
 app.UseSwagger();
 app.UseSwaggerUI();
 
+// CORS
 app.UseCors("AllowSpecificOrigins");
 
+// Authentication / Authorization
 app.UseAuthentication();
 app.UseAuthorization();
 
+// Controllers
 app.MapControllers();
 
 app.Run();
