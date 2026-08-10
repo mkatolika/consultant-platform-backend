@@ -28,18 +28,25 @@ builder.Services.AddIdentity<AppUser, IdentityRole>()
 // JWT Authentication
 var key = Convert.FromBase64String(builder.Configuration["Jwt:Key"]);
 
-// i added this 1
+var allowedOrigins = builder.Configuration
+    .GetSection("Cors:AllowedOrigins")
+    .Get<string[]>() ?? [];
+
+if (allowedOrigins.Length == 0)
+{
+    throw new InvalidOperationException(
+        "Configure at least one allowed origin in Cors:AllowedOrigins.");
+}
+
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("AllowSpecificOrigins",
-        policy =>
-        {
-            policy.WithOrigins("http://localhost:3000") // allowed client app
-                  .AllowAnyHeader()
-                  .AllowAnyMethod();
-        });
+    options.AddPolicy("Frontend", policy =>
+    {
+        policy.WithOrigins(allowedOrigins)
+              .AllowAnyHeader()
+              .AllowAnyMethod();
+    });
 });
-
 //THIS IS FOR TESTING AUTHENTICATION IN SWAGGER IT GIVES YOU THE LOGIN OPTION
 builder.Services.AddSwaggerGen(c =>
 {
@@ -104,7 +111,7 @@ app.UseSwagger();
 app.UseSwaggerUI();
 
 // 2. Use CORS middleware
-app.UseCors("AllowSpecificOrigins");
+app.UseCors("Frontend");
 
 app.UseAuthentication();
 app.UseAuthorization();

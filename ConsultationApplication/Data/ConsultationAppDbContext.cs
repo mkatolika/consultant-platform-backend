@@ -22,6 +22,10 @@ namespace ConsultationApplication.Data
         {
             base.OnModelCreating(modelBuilder);
 
+            modelBuilder.Entity<Services>()
+                .Property(service => service.Price)
+                .HasPrecision(18, 2);
+
             // Bookings relationships
             modelBuilder.Entity<Bookings>()
                 .HasOne(b => b.Client)
