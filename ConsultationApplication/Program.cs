@@ -1,6 +1,7 @@
-using ConsultationApplication.AppServices;
-using ConsultationApplication.Data;
-using ConsultationApplication.Models;
+
+using ConsulationApplication.AppServices;
+using ConsulationApplication.Data;
+using ConsulationApplication.Models;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -9,14 +10,14 @@ using Microsoft.OpenApi.Models;
 using System;
 using System.Text;
 
+
+
 var builder = WebApplication.CreateBuilder(args);
 
 // Database
 builder.Services.AddDbContext<ConsulatationAppDBContext>(options =>
 {
-    options.UseSqlServer(
-        builder.Configuration.GetConnectionString("DefaultConnection")
-    );
+    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection"));
 });
 
 // Identity
@@ -25,28 +26,21 @@ builder.Services.AddIdentity<AppUser, IdentityRole>()
     .AddDefaultTokenProviders();
 
 // JWT Authentication
-var jwtKey = builder.Configuration["Jwt:Key"];
+var key = Convert.FromBase64String(builder.Configuration["Jwt:Key"]);
 
-if (string.IsNullOrWhiteSpace(jwtKey))
-{
-    throw new InvalidOperationException("Jwt:Key is not configured.");
-}
-
-var key = Convert.FromBase64String(jwtKey);
-
-// CORS
+// i added this 1
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("AllowSpecificOrigins", policy =>
-    {
-        policy
-            .WithOrigins("http://localhost:3000")
-            .AllowAnyHeader()
-            .AllowAnyMethod();
-    });
+    options.AddPolicy("AllowSpecificOrigins",
+        policy =>
+        {
+            policy.WithOrigins("http://localhost:3000") // allowed client app
+                  .AllowAnyHeader()
+                  .AllowAnyMethod();
+        });
 });
 
-// Swagger + Bearer authentication
+//THIS IS FOR TESTING AUTHENTICATION IN SWAGGER IT GIVES YOU THE LOGIN OPTION
 builder.Services.AddSwaggerGen(c =>
 {
     c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
@@ -57,7 +51,6 @@ builder.Services.AddSwaggerGen(c =>
         Type = SecuritySchemeType.ApiKey,
         Scheme = "Bearer"
     });
-
     c.AddSecurityRequirement(new OpenApiSecurityRequirement
     {
         {
@@ -69,18 +62,17 @@ builder.Services.AddSwaggerGen(c =>
                     Id = "Bearer"
                 }
             },
-            Array.Empty<string>()
+            new string[] {}
         }
     });
 });
 
+
+
 builder.Services.AddAuthentication(options =>
 {
-    options.DefaultAuthenticateScheme =
-        JwtBearerDefaults.AuthenticationScheme;
-
-    options.DefaultChallengeScheme =
-        JwtBearerDefaults.AuthenticationScheme;
+    options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+    options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
 })
 .AddJwtBearer(options =>
 {
@@ -90,7 +82,6 @@ builder.Services.AddAuthentication(options =>
         ValidateAudience = true,
         ValidateLifetime = true,
         ValidateIssuerSigningKey = true,
-
         ValidIssuer = builder.Configuration["Jwt:Issuer"],
         ValidAudience = builder.Configuration["Jwt:Audience"],
 
@@ -100,27 +91,19 @@ builder.Services.AddAuthentication(options =>
 
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen();
+builder.Services.AddScoped<TokenService>();
 
 var app = builder.Build();
 
-// Apply pending EF Core migrations
-using (var scope = app.Services.CreateScope())
-{
-    var dbContext =
-        scope.ServiceProvider.GetRequiredService<ConsulatationAppDBContext>();
 
-    await dbContext.Database.MigrateAsync();
-}
-
-// Basic endpoints
 app.MapGet("/", () => Results.Ok("API Running"));
 app.MapGet("/health", () => Results.Ok("Healthy"));
 
-// Swagger
 app.UseSwagger();
 app.UseSwaggerUI();
 
-// CORS
+// 2. Use CORS middleware
 app.UseCors("AllowSpecificOrigins");
 
 app.UseAuthentication();
