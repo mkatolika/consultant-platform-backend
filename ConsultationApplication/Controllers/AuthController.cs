@@ -32,9 +32,17 @@ namespace ConsultationApplication.Controllers
             var result = await _userManager.CreateAsync(user, dto.Password);
             if (!result.Succeeded) return BadRequest(result.Errors);
 
-            await _userManager.AddToRoleAsync(user, "User");
+            var roleResult = await _userManager.AddToRoleAsync(user, "User");
 
-            return Ok("User created");
+            if (!roleResult.Succeeded)
+            {
+                await _userManager.DeleteAsync(user);
+                return StatusCode(
+                    StatusCodes.Status500InternalServerError,
+                    roleResult.Errors);
+            }
+
+            return Ok(new { message = "User created" });
         }
 
         [HttpPost("login")]
