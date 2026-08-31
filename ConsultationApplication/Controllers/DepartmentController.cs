@@ -1,31 +1,44 @@
 using ConsultationApplication.Data;
+using ConsultationApplication.DTOs;
 using ConsultationApplication.Models;
-using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 
-namespace ConsultationApplication.Controllers
+namespace ConsultationApplication.Controllers;
+
+[ApiController]
+[Route("api/[controller]")]
+public class DepartmentController : ControllerBase
 {
-    [Route("api/[controller]")]
-    [ApiController]
-    public class DepartmentController : ControllerBase
+    private readonly ConsultationAppDbContext _context;
+
+    public DepartmentController(ConsultationAppDbContext context)
     {
-        private readonly ConsultationAppDbContext _context;
+        _context = context;
+    }
 
-        public DepartmentController(ConsultationAppDbContext context)
+    [HttpPost("create")]
+    [Authorize(Roles = "Admin")]
+    public async Task<IActionResult> CreateDepartment([FromBody] CreateDepartmentDto dto)
+    {
+        var normalizedName = dto.Name.Trim();
+        if (await _context.Departments.AnyAsync(department => department.Name == normalizedName))
+            return Conflict(new { message = "A department with this name already exists." });
+
+        var department = new Department
         {
-            _context = context;
-        }
-        [HttpPost("create")]
-        public async Task<IActionResult> CreateDepartment([FromBody] Department department)
+            Name = normalizedName,
+            Description = dto.Description?.Trim()
+        };
+
+        _context.Departments.Add(department);
+        await _context.SaveChangesAsync();
+
+        return StatusCode(StatusCodes.Status201Created, new
         {
-            if (string.IsNullOrWhiteSpace(department.Name))
-                return BadRequest("Department name is required.");
-
-            _context.Departments.Add(department);
-            await _context.SaveChangesAsync();
-
-            return Ok(new { message = "Department created successfully", department });
-
-        }
+            message = "Department created successfully.",
+            departmentId = department.Id
+        });
     }
 }

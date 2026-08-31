@@ -1,13 +1,15 @@
-using System.Text.Json.Serialization;
+using System.ComponentModel.DataAnnotations;
 
-namespace ConsultationApplication.DTOs
+namespace ConsultationApplication.DTOs;
+
+public class RegisterDto
 {
-    public class RegisterDto
-    {
-        public string Username { get; set; }
-        public string Password { get; set; }
-        public string FullName { get; set; }
+    [Required, StringLength(100, MinimumLength = 3)]
+    public string Username { get; set; } = string.Empty;
 
-       
-    }
+    [Required, StringLength(100, MinimumLength = 8), DataType(DataType.Password)]
+    public string Password { get; set; } = string.Empty;
+
+    [Required, StringLength(150, MinimumLength = 2)]
+    public string FullName { get; set; } = string.Empty;
 }

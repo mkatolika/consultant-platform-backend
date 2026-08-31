@@ -22,6 +22,22 @@ namespace ConsultationApplication.Data
         {
             base.OnModelCreating(modelBuilder);
 
+            modelBuilder.Entity<Consultant>()
+                .HasIndex(consultant => consultant.UserId)
+                .IsUnique();
+
+            modelBuilder.Entity<Consultant>()
+                .HasIndex(consultant => consultant.LicenseNumber)
+                .IsUnique();
+
+            modelBuilder.Entity<Department>()
+                .HasIndex(department => department.Name)
+                .IsUnique();
+
+            modelBuilder.Entity<Services>()
+                .HasIndex(service => service.Name)
+                .IsUnique();
+
             modelBuilder.Entity<Services>()
                 .Property(service => service.Price)
                 .HasPrecision(18, 2);

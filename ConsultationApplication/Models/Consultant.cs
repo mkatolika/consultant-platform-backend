@@ -1,26 +1,35 @@
+using System.ComponentModel.DataAnnotations;
 using System.Text.Json.Serialization;
 
-namespace ConsultationApplication.Models
+namespace ConsultationApplication.Models;
+
+public class Consultant
 {
-    public class Consultant
-    {
-        public int Id { get; set; }
-        public string UserId { get; set; }
+    public int Id { get; set; }
 
-        [JsonIgnore]
-        public AppUser User { get; set; }
+    [Required]
+    public string UserId { get; set; } = string.Empty;
 
-        public string Specialization { get; set; }
-        public string Qualification { get; set; }
-        public string LicenseNumber { get; set; }
-        public int YearsOfExperience { get; set; }
-        public int Rating { get; set; }
+    [JsonIgnore]
+    public AppUser User { get; set; } = null!;
 
-        public bool IsApproved { get; set; } = false;
+    [Required, MaxLength(120)]
+    public string Specialization { get; set; } = string.Empty;
 
-        // Link to services via join table
-        
-        [JsonIgnore]
-        public ICollection<ConsultantService> ConsultantServices { get; set; }
-    }
+    [Required, MaxLength(200)]
+    public string Qualification { get; set; } = string.Empty;
+
+    [Required, MaxLength(100)]
+    public string LicenseNumber { get; set; } = string.Empty;
+
+    [Range(0, 70)]
+    public int YearsOfExperience { get; set; }
+
+    [Range(0, 5)]
+    public int Rating { get; set; }
+
+    public bool IsApproved { get; set; }
+
+    [JsonIgnore]
+    public ICollection<ConsultantService> ConsultantServices { get; set; } = [];
 }

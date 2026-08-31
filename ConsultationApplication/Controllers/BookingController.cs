@@ -1,91 +1,111 @@
+using System.Security.Claims;
 using ConsultationApplication.Data;
 using ConsultationApplication.DTOs;
 using ConsultationApplication.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using System.Security.Claims;
 
-namespace ConsultationApplication.Controllers
+namespace ConsultationApplication.Controllers;
+
+[ApiController]
+[Route("api/[controller]")]
+public class BookingController : ControllerBase
 {
-    [Route("api/[controller]")]
-    [ApiController]
-    public class BookingController : ControllerBase
+    private readonly ConsultationAppDbContext _context;
+
+    public BookingController(ConsultationAppDbContext context)
     {
-        private readonly ConsultationAppDbContext _context;
+        _context = context;
+    }
 
-        public BookingController(ConsultationAppDbContext context)
+    [HttpPost("create")]
+    [Authorize(Roles = "User")]
+    public async Task<IActionResult> CreateBooking([FromBody] BookingDto dto)
+    {
+        var clientId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(clientId))
+            return Unauthorized();
+
+        var slot = await _context.Slots.SingleOrDefaultAsync(candidate => candidate.Id == dto.SlotId);
+        if (slot is null)
+            return NotFound(new { message = "Slot not found." });
+
+        if (!slot.IsAvailable || slot.StartTime <= DateTime.UtcNow)
+            return Conflict(new { message = "Slot is no longer available." });
+
+        if (slot.ConsultantId != dto.ConsultantId)
+            return BadRequest(new { message = "The selected slot does not belong to this consultant." });
+
+        var consultantCanProvideService = await _context.ConsultantServices.AnyAsync(link =>
+            link.Consultant.UserId == dto.ConsultantId &&
+            link.Consultant.IsApproved &&
+            link.ServiceId == dto.ServiceId);
+
+        if (!consultantCanProvideService)
+            return BadRequest(new { message = "The consultant is not approved to provide this service." });
+
+        slot.IsAvailable = false;
+        var booking = new Bookings
         {
-            _context = context;
-        }
+            ClientId = clientId,
+            ConsultantId = dto.ConsultantId,
+            ServiceId = dto.ServiceId,
+            SlotId = dto.SlotId
+        };
 
-        // POST: api/Booking/create
-        [HttpPost("create")]
-        [Authorize]
-        public async Task<IActionResult> CreateBooking([FromBody] BookingDto dto)
+        _context.Bookings.Add(booking);
+
+        try
         {
-            var slot = await _context.Slots.FindAsync(dto.SlotId);
-            if (slot == null || !slot.IsAvailable)
-                return BadRequest("Slot is not available");
-
-            // Mark slot as unavailable
-            slot.IsAvailable = false;
-
-            var booking = new Bookings
-            {
-                ClientId = dto.UserId,
-                ConsultantId = dto.ConsultantId,
-                ServiceId = dto.ServiceId,
-                SlotId = dto.SlotId,
-                Status = Bookings.BookingStatus.Pending // ✅ default status
-            };
-
-            _context.Bookings.Add(booking);
             await _context.SaveChangesAsync();
-
-            return Ok(new { message = "Booking created successfully", bookingId = booking.Id });
         }
-
-        // GET: api/Booking/my-bookings
-        [HttpGet("my-bookings")]
-        [Authorize]
-        public async Task<IActionResult> GetMyBookings()
+        catch (DbUpdateException)
         {
-            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-            var role = User.FindFirstValue(ClaimTypes.Role);
-
-            if (string.IsNullOrEmpty(userId))
-                return Unauthorized();
-
-            IQueryable<Bookings> query = _context.Bookings
-                .Include(b => b.Service)
-                .Include(b => b.Slot)
-                .Include(b => b.Consultant)
-                .Include(b => b.Client);
-
-            // 👑 Admin sees all bookings
-            if (role != "Admin")
-            {
-                query = query.Where(b =>
-                    b.ClientId == userId ||
-                    b.ConsultantId == userId
-                );
-            }
-
-            var bookings = await query.ToListAsync();
-
-            var dtoList = bookings.Select(b => new BookingResponseDto
-            {
-                Id = b.Id,
-                ClientName = b.Client?.FullName ?? "",
-                ConsultantName = b.Consultant?.FullName ?? "",
-                ServiceName = b.Service?.Name ?? "",
-                SlotStart = b.Slot?.StartTime ?? DateTime.MinValue,
-                SlotEnd = b.Slot?.EndTime ?? DateTime.MinValue,
-                Status = b.Status
-            });
-
-            return Ok(dtoList);
+            return Conflict(new { message = "The slot was booked by another client." });
         }
+
+        return StatusCode(StatusCodes.Status201Created, new
+        {
+            message = "Booking created successfully.",
+            bookingId = booking.Id
+        });
+    }
+
+    [HttpGet("my-bookings")]
+    [Authorize]
+    public async Task<ActionResult<IEnumerable<BookingResponseDto>>> GetMyBookings()
+    {
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId))
+            return Unauthorized();
+
+        var isAdmin = User.IsInRole("Admin");
+        var query = _context.Bookings
+            .AsNoTracking()
+            .Include(booking => booking.Service)
+            .Include(booking => booking.Slot)
+            .Include(booking => booking.Consultant)
+            .Include(booking => booking.Client)
+            .AsQueryable();
+
+        if (!isAdmin)
+            query = query.Where(booking => booking.ClientId == userId || booking.ConsultantId == userId);
+
+        var bookings = await query
+            .OrderByDescending(booking => booking.Slot.StartTime)
+            .Select(booking => new BookingResponseDto
+            {
+                Id = booking.Id,
+                ClientName = booking.Client.FullName,
+                ConsultantName = booking.Consultant.FullName,
+                ServiceName = booking.Service.Name,
+                SlotStart = booking.Slot.StartTime,
+                SlotEnd = booking.Slot.EndTime,
+                Status = booking.Status
+            })
+            .ToListAsync();
+
+        return Ok(bookings);
     }
 }

@@ -1,52 +1,47 @@
-using System.Security.Claims;
-using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
 using ConsultationApplication.Models;
-using System.Text;
+using Microsoft.IdentityModel.Tokens;
 
+namespace ConsultationApplication.AppServices;
 
-namespace ConsultationApplication.AppServices
+public class TokenService
 {
-    public class TokenService
+    private readonly IConfiguration _configuration;
+
+    public TokenService(IConfiguration configuration)
     {
-        private readonly IConfiguration _config;
+        _configuration = configuration;
+    }
 
-        public TokenService(IConfiguration config)
+    public string CreateToken(AppUser user, IList<string> roles)
+    {
+        var claims = new List<Claim>
         {
-            _config = config;
-        }
+            new(ClaimTypes.Name, user.UserName ?? string.Empty),
+            new(ClaimTypes.NameIdentifier, user.Id)
+        };
 
-        public string CreateToken(AppUser user, IList<string> roles)
-        {
-            var claims = new List<Claim>
-            {
-                new Claim(ClaimTypes.Name, user.UserName),
-                new Claim(ClaimTypes.NameIdentifier, user.Id)
-            };
+        claims.AddRange(roles.Select(role => new Claim(ClaimTypes.Role, role)));
 
-            // Add roles
-            foreach (var role in roles)
-            {
-                claims.Add(new Claim(ClaimTypes.Role, role));
-            }
+        var keyValue = _configuration["Jwt:Key"]
+            ?? throw new InvalidOperationException("Jwt:Key is not configured.");
+        var issuer = _configuration["Jwt:Issuer"]
+            ?? throw new InvalidOperationException("Jwt:Issuer is not configured.");
+        var audience = _configuration["Jwt:Audience"]
+            ?? throw new InvalidOperationException("Jwt:Audience is not configured.");
 
-            
-            var key = new SymmetricSecurityKey(Convert.FromBase64String(_config["Jwt:Key"]));
+        var credentials = new SigningCredentials(
+            new SymmetricSecurityKey(Convert.FromBase64String(keyValue)),
+            SecurityAlgorithms.HmacSha256);
 
-            var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+        var token = new JwtSecurityToken(
+            issuer,
+            audience,
+            claims,
+            expires: DateTime.UtcNow.AddHours(3),
+            signingCredentials: credentials);
 
-            var token = new JwtSecurityToken(
-                issuer: _config["Jwt:Issuer"],     
-                audience: _config["Jwt:Audience"],
-                claims: claims,
-                expires: DateTime.UtcNow.AddHours(3),
-                signingCredentials: creds
-            );
-
-            return new JwtSecurityTokenHandler().WriteToken(token);
-        }
+        return new JwtSecurityTokenHandler().WriteToken(token);
     }
 }
-
-    
-

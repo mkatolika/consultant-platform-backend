@@ -1,22 +1,18 @@
 using System.ComponentModel.DataAnnotations;
 using System.Text.Json.Serialization;
 
-namespace ConsultationApplication.Models
+namespace ConsultationApplication.Models;
+
+public class Department
 {
+    public int Id { get; set; }
 
-    public class Department
-    {
-        public int Id { get; set; }
+    [Required, MaxLength(100)]
+    public string Name { get; set; } = string.Empty;
 
-        [Required]
-        [MaxLength(100)]
-        public string Name { get; set; }
+    [MaxLength(500)]
+    public string? Description { get; set; }
 
-        public string? Description { get; set; }
-
-
-        [JsonIgnore]
-        public ICollection<Services> Services { get; set; } = new List<Services>();
-
-    }
+    [JsonIgnore]
+    public ICollection<Services> Services { get; set; } = [];
 }

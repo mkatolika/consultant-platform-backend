@@ -1,7 +1,9 @@
-namespace ConsultationApplication.DTOs
+using System.ComponentModel.DataAnnotations;
+
+namespace ConsultationApplication.DTOs;
+
+public class RoleDto
 {
-    public class RoleDto
-    {
-        public string Role { get; set; }
-    }
+    [Required, RegularExpression("^(Admin|Consultant|User)$", ErrorMessage = "Role must be Admin, Consultant, or User.")]
+    public string Role { get; set; } = string.Empty;
 }
