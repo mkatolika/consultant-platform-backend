@@ -46,16 +46,8 @@ docker run --rm -p 8080:8080 \
 
 ## CI/CD
 
-```text
-BUILD                     SANITY CHECKS                  ARTIFACT PUBLISH          DEPLOY
-dotnet-restore-build ---+ backend-unit-test ----------+ backend-version-bump --+
-                         + backend-lint                 |                         + deploy-dev
-backend-docker-candidate + backend-sast                 | backend-docker-publish -+
-                         + backend-secret-detection     |
-                         + backend-dependency-scanning  |
-                         + backend-container-scanning   |
-                         + backend-dast ----------------+
-```
+<img width="1353" height="393" alt="image" src="https://github.com/user-attachments/assets/637b5d52-da5c-4cfc-91b5-70bb3376c49a" />
+
 
 The Docker candidate is built exactly once, saved as a workflow artifact, loaded for container scanning and DAST, then retagged and pushed without rebuilding. Version bump and Docker publishing run in parallel. Deployment waits for both and verifies the immutable image plus `/health` endpoint. Database migrations become eligible only after deployment succeeds.
 
