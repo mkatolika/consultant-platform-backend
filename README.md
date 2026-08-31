@@ -152,13 +152,8 @@ docker run --rm -p 8080:8080 `
 
 The GitHub Actions workflow restores and builds the solution, creates one immutable Docker candidate, and reuses that same image for container scanning, dynamic security testing, publishing, and deployment. This avoids testing one image and deploying another.
 
-```text
-BUILD                     QUALITY & SECURITY                 RELEASE
-restore/build ----------+ unit tests ---------------------+ version
-Docker candidate -------+ formatting                     + publish exact image
-                         + CodeQL / Gitleaks / Trivy       + deploy with Azure OIDC
-                         + OWASP ZAP                       + verify image and /health
-```
+<img width="1353" height="393" alt="image" src="https://github.com/user-attachments/assets/d74bd949-0892-4abf-b465-4a5e7f0ff02c" />
+
 
 Deployment uses GitHub's Azure OIDC authentication rather than a long-lived Azure password. GitHub Environments provide manual approval gates for deployment and database migration.
 
