@@ -1,60 +1,69 @@
-using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.Identity;
-using ConsultationApplication.Models;
 using ConsultationApplication.AppServices;
 using ConsultationApplication.DTOs;
+using ConsultationApplication.Models;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Mvc;
 
-namespace ConsultationApplication.Controllers
+namespace ConsultationApplication.Controllers;
+
+[ApiController]
+[Route("api/[controller]")]
+public class AuthController : ControllerBase
 {
-    [Route("api/[controller]")]
-    [ApiController]
-    public class AuthController : ControllerBase
+    private readonly UserManager<AppUser> _userManager;
+    private readonly SignInManager<AppUser> _signInManager;
+    private readonly TokenService _tokenService;
+
+    public AuthController(
+        UserManager<AppUser> userManager,
+        SignInManager<AppUser> signInManager,
+        TokenService tokenService)
     {
-        private readonly UserManager<AppUser> _userManager;
-        private readonly SignInManager<AppUser> _signInManager;
-        private readonly TokenService _tokenService;
+        _userManager = userManager;
+        _signInManager = signInManager;
+        _tokenService = tokenService;
+    }
 
-        public AuthController(UserManager<AppUser> userManager,
-                              SignInManager<AppUser> signInManager,
-                              TokenService tokenService)
+    [HttpPost("register")]
+    public async Task<IActionResult> Register(RegisterDto dto)
+    {
+        var user = new AppUser
         {
-             _userManager = userManager;
-            _signInManager = signInManager;
-            _tokenService = tokenService;
+            UserName = dto.Username.Trim(),
+            FullName = dto.FullName.Trim()
+        };
+
+        var result = await _userManager.CreateAsync(user, dto.Password);
+        if (!result.Succeeded)
+            return BadRequest(result.Errors);
+
+        var roleResult = await _userManager.AddToRoleAsync(user, "User");
+        if (!roleResult.Succeeded)
+        {
+            await _userManager.DeleteAsync(user);
+            return Problem("The account could not be assigned its default role.");
         }
 
-        [HttpPost("register")]
-        public async Task<IActionResult> Register(RegisterDto dto)
+        return StatusCode(StatusCodes.Status201Created, new { message = "User created successfully." });
+    }
+
+    [HttpPost("login")]
+    public async Task<IActionResult> Login(LoginDto dto)
+    {
+        var user = await _userManager.FindByNameAsync(dto.Username.Trim());
+        if (user is null)
+            return Unauthorized(new { message = "Invalid username or password." });
+
+        var result = await _signInManager.CheckPasswordSignInAsync(user, dto.Password, lockoutOnFailure: true);
+        if (!result.Succeeded)
+            return Unauthorized(new { message = "Invalid username or password." });
+
+        var roles = await _userManager.GetRolesAsync(user);
+        return Ok(new
         {
-            var user = new AppUser { UserName = dto.Username, FullName = dto.FullName };
-
-            var result = await _userManager.CreateAsync(user, dto.Password);
-            if (!result.Succeeded) return BadRequest(result.Errors);
-
-            await _userManager.AddToRoleAsync(user, "User");
-
-            return Ok("User created");
-        }
-
-        [HttpPost("login")]
-        public async Task<IActionResult> Login(LoginDto dto)
-        {
-            var user = await _userManager.FindByNameAsync(dto.Username);
-            if (user == null) return Unauthorized("User not found");
-
-            var result = await _signInManager.CheckPasswordSignInAsync(user, dto.Password, false);
-            if (!result.Succeeded) return Unauthorized("Invalid credentials");
-
-            var roles = await _userManager.GetRolesAsync(user);
-            var token = _tokenService.CreateToken(user, roles);
-
-            return Ok(new
-            {
-                token,
-                username = user.UserName,
-                roles
-            });
-        }
+            token = _tokenService.CreateToken(user, roles),
+            username = user.UserName,
+            roles
+        });
     }
 }

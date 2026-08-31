@@ -1,11 +1,15 @@
-namespace ConsultationApplication.DTOs
+using System.ComponentModel.DataAnnotations;
+
+namespace ConsultationApplication.DTOs;
+
+public class BookingDto
 {
-    
-    public class BookingDto
-    {
-        public string UserId { get; set; }
-        public string ConsultantId { get; set; }   // string because it ties to AspNetUsers
-        public int ServiceId { get; set; }         
-        public int SlotId { get; set; }
-    }
+    [Required, StringLength(450)]
+    public string ConsultantId { get; set; } = string.Empty;
+
+    [Range(1, int.MaxValue)]
+    public int ServiceId { get; set; }
+
+    [Range(1, int.MaxValue)]
+    public int SlotId { get; set; }
 }

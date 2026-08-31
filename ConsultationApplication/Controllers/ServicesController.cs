@@ -1,61 +1,73 @@
 using ConsultationApplication.Data;
 using ConsultationApplication.DTOs;
 using ConsultationApplication.Models;
-using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
+namespace ConsultationApplication.Controllers;
 
-namespace ConsultationApplication.Controllers
+[ApiController]
+[Route("api/[controller]")]
+public class ServicesController : ControllerBase
 {
-    
-    [ApiController]
-    [Route("api/[controller]")]
-    public class ServicesController : ControllerBase
+    private readonly ConsultationAppDbContext _context;
+
+    public ServicesController(ConsultationAppDbContext context)
     {
-        private readonly ConsultationAppDbContext _context;
+        _context = context;
+    }
 
-        public ServicesController(ConsultationAppDbContext context)
+    [HttpPost("create")]
+    [Authorize(Roles = "Admin")]
+    public async Task<IActionResult> CreateService([FromBody] CreateServiceDto dto)
+    {
+        if (!await _context.Departments.AnyAsync(department => department.Id == dto.DepartmentId))
+            return BadRequest(new { message = "Department does not exist." });
+
+        var normalizedName = dto.Name.Trim();
+        if (await _context.Services.AnyAsync(service => service.Name == normalizedName))
+            return Conflict(new { message = "A service with this name already exists." });
+
+        var service = new Services
         {
-            _context = context;
-        }
+            Name = normalizedName,
+            Description = dto.Description.Trim(),
+            Price = dto.Price,
+            DepartmentId = dto.DepartmentId
+        };
 
-        // POST: api/Services/create
-        [HttpPost("create")]
-        public async Task<IActionResult> CreateService([FromBody] Services service)
+        _context.Services.Add(service);
+        await _context.SaveChangesAsync();
+
+        return StatusCode(StatusCodes.Status201Created, new
         {
-            _context.Services.Add(service);
-            await _context.SaveChangesAsync();
+            message = "Service created successfully.",
+            serviceId = service.Id
+        });
+    }
 
-            return Ok(new { message = "Service created successfully", serviceId = service.Id });
-        }
+    [HttpGet]
+    public async Task<ActionResult<IEnumerable<ServiceDto>>> GetServices([FromQuery] string? name)
+    {
+        var query = _context.Services.AsNoTracking().AsQueryable();
 
+        if (!string.IsNullOrWhiteSpace(name))
+            query = query.Where(service => service.Name.Contains(name.Trim()));
 
-        [HttpGet]
-        public async Task<IActionResult> GetServices([FromQuery] string? name)
-        {
-            var services = _context.Services
-                .Include(s => s.Department)
-                .AsQueryable();
-
-            if (!string.IsNullOrEmpty(name))
+        var services = await query
+            .OrderBy(service => service.Name)
+            .Select(service => new ServiceDto
             {
-                services = services.Where(s => s.Name.Contains(name));
-            }
+                Id = service.Id,
+                Name = service.Name,
+                Description = service.Description,
+                Price = service.Price,
+                DepartmentId = service.DepartmentId,
+                DepartmentName = service.Department!.Name
+            })
+            .ToListAsync();
 
-            var result = await services
-                .Select(s => new ServiceDto
-                {
-                    Id = s.Id,
-                    Name = s.Name,
-                    Description = s.Description,
-                    Price = s.Price,
-                    DepartmentId = s.Department.Id,
-                    DepartmentName = s.Department.Name
-                })
-                .ToListAsync();
-
-            return Ok(result);
-        }
+        return Ok(services);
     }
 }

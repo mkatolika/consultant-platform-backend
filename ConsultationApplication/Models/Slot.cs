@@ -1,33 +1,22 @@
 using System.ComponentModel.DataAnnotations;
 using System.Text.Json.Serialization;
 
-namespace ConsultationApplication.Models
+namespace ConsultationApplication.Models;
+
+public class Slot
 {
-    
-    public class Slot
-    {
-        public int Id { get; set; }
+    public int Id { get; set; }
 
-        // Consultant who owns this slot
-        [Required]
-       
-        public string ConsultantId { get; set; }
-        [JsonIgnore]
-        public AppUser? Consultant { get; set; }
+    [Required]
+    public string ConsultantId { get; set; } = string.Empty;
 
-        // Start and end time of the slot
-        [Required]
-        public DateTime StartTime { get; set; }
+    [JsonIgnore]
+    public AppUser? Consultant { get; set; }
 
-        [Required]
-        public DateTime EndTime { get; set; }
+    public DateTime StartTime { get; set; }
+    public DateTime EndTime { get; set; }
+    public bool IsAvailable { get; set; } = true;
 
-        // Is this slot available for booking?
-        public bool IsAvailable { get; set; } = true;
-
-        // Navigation: which booking reserved this slot
-        [JsonIgnore]
-        public Bookings? Booking { get; set; }
-    }
-
+    [JsonIgnore]
+    public Bookings? Booking { get; set; }
 }

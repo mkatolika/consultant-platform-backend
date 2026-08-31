@@ -1,55 +1,56 @@
 using ConsultationApplication.Data;
 using ConsultationApplication.Models;
 using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
-namespace ConsultationApplication.Controllers
+namespace ConsultationApplication.Controllers;
+
+[ApiController]
+[Route("api/[controller]")]
+[Authorize(Roles = "Admin")]
+public class AdminController : ControllerBase
 {
-    [Route("api/[controller]")]
-    [ApiController]
-   // [Authorize(Roles = "Admin")] // only admins can approve
-    public class AdminController : ControllerBase
+    private readonly ConsultationAppDbContext _context;
+    private readonly UserManager<AppUser> _userManager;
+
+    public AdminController(ConsultationAppDbContext context, UserManager<AppUser> userManager)
     {
-        private readonly ConsultationAppDbContext _context;
-        private readonly UserManager<AppUser> _userManager;
+        _context = context;
+        _userManager = userManager;
+    }
 
-        public AdminController(ConsultationAppDbContext context, UserManager<AppUser> userManager)
+    [HttpPost("approve/{consultantId}")]
+    public async Task<IActionResult> ApproveConsultant(string consultantId)
+    {
+        var consultant = await _context.Consultants
+            .FirstOrDefaultAsync(candidate => candidate.UserId == consultantId);
+
+        if (consultant is null)
+            return NotFound(new { message = "Consultant application not found." });
+
+        if (consultant.IsApproved)
+            return Conflict(new { message = "Consultant is already approved." });
+
+        var user = await _userManager.FindByIdAsync(consultantId);
+        if (user is null)
+            return NotFound(new { message = "Associated user not found." });
+
+        if (await _userManager.IsInRoleAsync(user, "User"))
         {
-            _context = context;
-            _userManager = userManager;
+            var removeResult = await _userManager.RemoveFromRoleAsync(user, "User");
+            if (!removeResult.Succeeded)
+                return Problem("Could not update the user's existing role.");
         }
 
-        // consultantId here should be string because it's the Identity UserId
-        [HttpPost("approve/{consultantId}")]
-        public async Task<IActionResult> ApproveConsultant(string consultantId)
-        {
-            var consultant = await _context.Consultants
-                .Include(c => c.User)
-                .FirstOrDefaultAsync(c => c.UserId == consultantId);
+        var addResult = await _userManager.AddToRoleAsync(user, "Consultant");
+        if (!addResult.Succeeded)
+            return Problem("Could not assign the Consultant role.");
 
-            if (consultant == null)
-                return NotFound("Consultant not found.");
+        consultant.IsApproved = true;
+        await _context.SaveChangesAsync();
 
-            consultant.IsApproved = true;
-            await _context.SaveChangesAsync();
-
-            
-
-
-
-            // Add Consultant role to the user
-            var user = await _userManager.FindByIdAsync(consultantId);
-           
-            if (user == null)
-                return NotFound("User not found.");
-
-            await _userManager.RemoveFromRoleAsync(user, "User");
-            await _userManager.AddToRoleAsync(user, "Consultant");
-
-            return Ok("Consultant approved successfully.");
-        }
+        return Ok(new { message = "Consultant approved successfully." });
     }
 }
